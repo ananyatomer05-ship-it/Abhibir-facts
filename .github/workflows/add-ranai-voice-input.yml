@@ -1,0 +1,242 @@
+name: Add ranAI voice input
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  add-ranai-voice:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Add microphone speech-to-text input to ranAI
+        shell: python
+        run: |
+          from pathlib import Path
+
+          p = Path('index.html')
+          s = p.read_text(encoding='utf-8')
+          marker = '/* ABHIBIR_RANAI_VOICE_INPUT_V1 */'
+          if marker in s:
+              raise SystemExit('Voice input enhancement is already present.')
+
+          style = r'''
+  <style>
+    /* ABHIBIR_RANAI_VOICE_INPUT_V1 */
+    .ranai-voice-wrap{display:flex;align-items:center;gap:8px;width:100%;}
+    .ranai-voice-wrap>*:first-child{flex:1;min-width:0;}
+    .ranai-mic-btn{width:44px;height:44px;border-radius:50%;border:1px solid #dbe3ee;background:#fff;color:#475569;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;flex:0 0 auto;transition:transform .15s,background .15s,color .15s,border-color .15s,box-shadow .15s;}
+    .ranai-mic-btn:hover{transform:translateY(-1px);background:#f8fafc;color:#2563eb;border-color:#bfdbfe;}
+    .ranai-mic-btn.listening{background:#fee2e2;color:#dc2626;border-color:#fecaca;box-shadow:0 0 0 4px rgba(239,68,68,.12);animation:ranaiMicPulse 1.2s infinite;}
+    .ranai-mic-btn.unsupported{opacity:.55;cursor:not-allowed;}
+    .ranai-mic-btn svg{width:19px;height:19px;pointer-events:none;}
+    @keyframes ranaiMicPulse{0%,100%{box-shadow:0 0 0 4px rgba(239,68,68,.12)}50%{box-shadow:0 0 0 9px rgba(239,68,68,.04)}}
+    .ranai-mic-status{font-size:12px;color:#64748b;margin-top:6px;min-height:16px;}
+    .ranai-mic-status.live{color:#dc2626;font-weight:600;}
+    @media (max-width:640px){.ranai-mic-btn{width:42px;height:42px;}}
+  </style>
+'''
+
+          script = r'''
+<script>
+(function(){
+  /* ABHIBIR_RANAI_VOICE_INPUT_V1 */
+  var recognition = null;
+  var listening = false;
+  var voiceButton = null;
+  var voiceStatus = null;
+  var targetInput = null;
+  var baseValue = '';
+
+  function isRanAiVisible(){
+    var page=document.getElementById('page-ranai');
+    return !!(page && page.classList.contains('active'));
+  }
+
+  function findInput(){
+    var page=document.getElementById('page-ranai');
+    if(!page) return null;
+    var candidates=Array.from(page.querySelectorAll('textarea,input[type="text"],input:not([type]) , [contenteditable="true"]'));
+    var preferred=candidates.filter(function(el){
+      var blob=((el.getAttribute('placeholder')||'')+' '+(el.getAttribute('aria-label')||'')+' '+(el.id||'')+' '+(el.className||'')).toLowerCase();
+      return /ask|message|question|prompt|ranai|chat/.test(blob);
+    });
+    return preferred[0] || candidates[candidates.length-1] || null;
+  }
+
+  function setValue(el,value){
+    if(el.isContentEditable){el.textContent=value;el.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:value}));return;}
+    var proto=el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    var setter=Object.getOwnPropertyDescriptor(proto,'value') && Object.getOwnPropertyDescriptor(proto,'value').set;
+    if(setter) setter.call(el,value); else el.value=value;
+    el.dispatchEvent(new Event('input',{bubbles:true}));
+    el.dispatchEvent(new Event('change',{bubbles:true}));
+  }
+
+  function getValue(el){return el.isContentEditable ? (el.textContent||'') : (el.value||'');}
+
+  function updateStatus(text,live){
+    if(!voiceStatus) return;
+    voiceStatus.textContent=text||'';
+    voiceStatus.classList.toggle('live',!!live);
+  }
+
+  function stopListening(){
+    listening=false;
+    if(voiceButton){voiceButton.classList.remove('listening');voiceButton.title='Speak your question';voiceButton.setAttribute('aria-label','Speak your question');}
+    updateStatus('',false);
+    if(recognition){try{recognition.stop();}catch(e){}}
+  }
+
+  function startListening(){
+    targetInput=findInput();
+    if(!targetInput){updateStatus('Could not find the ranAI input.',false);return;}
+    if(!recognition){updateStatus('Speech recognition is not supported in this browser.',false);return;}
+    baseValue=getValue(targetInput).trim();
+    try{
+      recognition.lang='en-IN';
+      recognition.start();
+    }catch(e){
+      // Calling start while already active can throw; ignore that case.
+      if(!listening) updateStatus('Could not start the microphone.',false);
+    }
+  }
+
+  function setupRecognition(){
+    var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+    if(!SR){return false;}
+    recognition=new SR();
+    recognition.continuous=true;
+    recognition.interimResults=true;
+    recognition.lang='en-IN';
+    recognition.onstart=function(){
+      listening=true;
+      if(voiceButton){voiceButton.classList.add('listening');voiceButton.title='Stop listening';voiceButton.setAttribute('aria-label','Stop listening');}
+      updateStatus('Listening… speak now',true);
+    };
+    recognition.onresult=function(event){
+      var combined='';
+      for(var i=event.resultIndex;i<event.results.length;i++) combined += event.results[i][0].transcript;
+      var finalText=combined.trim();
+      var next=(baseValue ? baseValue+' ' : '')+finalText;
+      setValue(targetInput,next);
+      if(targetInput.focus) targetInput.focus();
+      updateStatus('Listening…',true);
+      for(var j=event.resultIndex;j<event.results.length;j++){
+        if(event.results[j].isFinal){baseValue=next;}
+      }
+    };
+    recognition.onerror=function(event){
+      listening=false;
+      if(voiceButton) voiceButton.classList.remove('listening');
+      var message='Microphone error: '+(event.error||'unknown');
+      if(event.error==='not-allowed') message='Microphone permission was denied.';
+      else if(event.error==='no-speech') message='No speech detected.';
+      updateStatus(message,false);
+    };
+    recognition.onend=function(){
+      if(listening){
+        // Some browsers end recognition automatically; restart while the user is still listening.
+        try{recognition.start();return;}catch(e){}
+      }
+      listening=false;
+      if(voiceButton) voiceButton.classList.remove('listening');
+      updateStatus('',false);
+    };
+    return true;
+  }
+
+  function buildMic(){
+    if(voiceButton && document.body.contains(voiceButton)) return true;
+    var input=findInput();
+    if(!input) return false;
+    var parent=input.parentElement;
+    if(!parent) return false;
+    var oldWrap=input.closest('.ranai-voice-wrap');
+    if(oldWrap) return true;
+
+    var wrap=document.createElement('div');
+    wrap.className='ranai-voice-wrap';
+    parent.insertBefore(wrap,input);
+    wrap.appendChild(input);
+
+    voiceButton=document.createElement('button');
+    voiceButton.type='button';
+    voiceButton.className='ranai-mic-btn';
+    voiceButton.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="11" rx="3"></rect><path d="M5 10a7 7 0 0 0 14 0"></path><path d="M12 20v-4"></path><path d="M8 20h8"></path></svg>';
+    voiceButton.title='Speak your question';
+    voiceButton.setAttribute('aria-label','Speak your question');
+    voiceButton.addEventListener('click',function(){
+      if(listening) stopListening(); else startListening();
+    });
+    wrap.appendChild(voiceButton);
+
+    voiceStatus=document.createElement('div');
+    voiceStatus.className='ranai-mic-status';
+    wrap.parentElement.appendChild(voiceStatus);
+
+    if(!recognition){
+      voiceButton.classList.add('unsupported');
+      voiceButton.title='Speech-to-text is not supported in this browser';
+    }
+    return true;
+  }
+
+  function removeIfWrongPage(){
+    if(!isRanAiVisible() && voiceButton){
+      var wrap=voiceButton.closest('.ranai-voice-wrap');
+      if(wrap){
+        var original=wrap.firstElementChild;
+        var parent=wrap.parentElement;
+        if(original && parent) parent.insertBefore(original,wrap);
+        wrap.remove();
+      }
+      voiceButton=null;voiceStatus=null;targetInput=null;
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded',function(){
+    setupRecognition();
+    var tries=0;
+    var timer=setInterval(function(){
+      tries++;
+      if(isRanAiVisible()) buildMic();
+      removeIfWrongPage();
+      if(tries>120) clearInterval(timer);
+    },500);
+    var observer=new MutationObserver(function(){
+      if(isRanAiVisible()) buildMic();
+      removeIfWrongPage();
+    });
+    observer.observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['class']});
+  });
+})();
+</script>
+'''
+
+          marker2='<!-- ABHIBIR_RANAI_VOICE_INPUT_INSERT -->'
+          if marker2 in s:
+              raise SystemExit('Voice input insertion marker already exists.')
+          payload = '\n'+marker2+'\n'+style+'\n'+script+'\n'
+          if '</head>' in s:
+              s=s.replace('</head>', payload+'</head>', 1)
+          else:
+              raise SystemExit('Could not find </head> in index.html.')
+          p.write_text(s,encoding='utf-8')
+          print('Added browser-native ranAI speech-to-text microphone button.')
+
+      - name: Commit changes and remove one-time workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          git rm .github/workflows/add-ranai-voice-input.yml
+          git commit -m "Add ranAI speech-to-text microphone input"
+          git push
