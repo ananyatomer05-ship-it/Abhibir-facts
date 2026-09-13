@@ -20,22 +20,11 @@ const PROVIDERS = {
   },
 };
 
-function json(body, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      'Content-Type': 'application/json; charset=utf-8',
-      'Cache-Control': 'no-store',
-    },
-  });
-}
-
-async function readBody(request) {
-  try {
-    return await request.json();
-  } catch {
-    return null;
-  }
+function sendJson(res, body, status = 200) {
+  res.statusCode = status;
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store');
+  res.end(JSON.stringify(body));
 }
 
 async function readResponse(response) {
@@ -151,14 +140,14 @@ async function handleMistral(body, apiKey) {
   return output;
 }
 
-export default async function handler(request) {
-  if (request.method !== 'POST') {
-    return json({ error: 'Method not allowed. Use POST /api/ranai.' }, 405);
+export default async function handler(req, res) {
+  if (req.method !== 'POST') {
+    return sendJson(res, { error: 'Method not allowed. Use POST /api/ranai.' }, 405);
   }
 
-  const body = await readBody(request);
+  const body = req.body;
   if (!body || typeof body !== 'object') {
-    return json({ error: 'Invalid JSON request body.' }, 400);
+    return sendJson(res, { error: 'Invalid JSON request body.' }, 400);
   }
 
   const provider = String(body.provider || '').toLowerCase();
@@ -166,7 +155,7 @@ export default async function handler(request) {
   const config = PROVIDERS[provider];
 
   if (!config) {
-    return json({ error: `Unsupported provider: ${provider || '(missing)'}` }, 400);
+    return sendJson(res, { error: `Unsupported provider: ${provider || '(missing)'}` }, 400);
   }
 
   const allowedTasks = {
@@ -176,12 +165,12 @@ export default async function handler(request) {
   };
 
   if (!allowedTasks[provider].includes(task)) {
-    return json({ error: `Unsupported task '${task}' for provider '${provider}'.` }, 400);
+    return sendJson(res, { error: `Unsupported task '${task}' for provider '${provider}'.` }, 400);
   }
 
   const apiKey = process.env[config.apiKeyEnv];
   if (!apiKey) {
-    return json({ error: `Server configuration missing ${config.apiKeyEnv}. Add it to Vercel Environment Variables.` }, 500);
+    return sendJson(res, { error: `Server configuration missing ${config.apiKeyEnv}. Add it to Vercel Environment Variables.` }, 500);
   }
 
   try {
@@ -190,9 +179,9 @@ export default async function handler(request) {
     else if (provider === 'openrouter') text = await handleOpenRouter(body, apiKey);
     else text = await handleMistral(body, apiKey);
 
-    return json({ text });
+    return sendJson(res, { text });
   } catch (error) {
     console.error(`ranAI ${provider}/${task} error:`, error);
-    return json({ error: error?.message || 'AI request failed.' }, 502);
+    return sendJson(res, { error: error?.message || 'AI request failed.' }, 502);
   }
 }
