@@ -1,0 +1,84 @@
+name: Update homepage videos
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  update-homepage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Update homepage content
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          p = Path('index.html')
+          s = p.read_text(encoding='utf-8')
+          original = s
+
+          # Channel link
+          s = s.replace(
+              'https://www.youtube.com/@AbhiBirFacts',
+              'https://www.youtube.com/@abhibirFacts1'
+          )
+
+          # Video 1
+          s = s.replace(
+              'https://www.youtube.com/embed/rsuc4n6tpcc?rel=0&modestbranding=1',
+              'https://www.youtube.com/embed/F1wqjuxk0X8?rel=0&modestbranding=1'
+          )
+          s = s.replace(
+              'https://youtu.be/rsuc4n6tpcc',
+              'https://youtu.be/F1wqjuxk0X8'
+          )
+
+          # Video 2
+          s = s.replace(
+              'https://www.youtube.com/embed/FG_4rJU4HoU?rel=0&modestbranding=1',
+              'https://www.youtube.com/embed/riyDFO_GGMQ?rel=0&modestbranding=1'
+          )
+          s = s.replace(
+              'https://youtube.com/shorts/FG_4rJU4HoU',
+              'https://youtu.be/riyDFO_GGMQ'
+          )
+
+          # Replace the homepage hero description with the supplied channel description.
+          old_hero = 'Diva into a universe of knowledge with science-backed accuracy. We distill complex information into approachable, engaging insights that spark curiosity and deepen your understanding of reality.'
+          if old_hero not in s:
+              old_hero = 'Dive into a universe of knowledge with science-backed accuracy. We distill complex information into approachable, engaging insights that spark curiosity and deepen your understanding of reality.'
+          new_hero = (
+              'Welcome to <strong>Abhibir Facts</strong>! 🧠✨<br><br>'
+              'Discover amazing, surprising, and mind-blowing facts from around the world. 🌍 '
+              'From science and history to animals, space, technology, and mysterious facts, '
+              'we bring you something new to learn every day!<br><br>'
+              'Subscribe to <strong>Abhibir Facts</strong> and turn your curiosity into knowledge. 🚀📚<br><br>'
+              '<strong>Facts you didn’t know you needed to know!</strong>'
+          )
+          if old_hero in s:
+              s = s.replace(old_hero, new_hero, 1)
+          else:
+              raise SystemExit('Homepage hero description target not found; refusing to make a partial update.')
+
+          if s == original:
+              raise SystemExit('No homepage changes were made; refusing to create an empty update commit.')
+
+          p.write_text(s, encoding='utf-8')
+
+      - name: Commit homepage changes and remove this one-time workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          git rm .github/workflows/update-home.yml
+          git commit -m "Update homepage videos and channel description"
+          git push
