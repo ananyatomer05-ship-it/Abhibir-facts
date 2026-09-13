@@ -4889,6 +4889,86 @@
 @media(max-width:900px){.hai-hero,.hai-controls,.hai-result-grid{grid-template-columns:1fr}.hai-story{border-right:none;border-bottom:1px solid #eee5d7}.hai-visual{min-height:260px}}
 @media(max-width:640px){.hai-wrap{padding:28px 16px 54px}.hai-hero-copy,.hai-panel-body,.hai-story,.hai-side{padding:18px}.hai-date-row{grid-template-columns:1fr}.hai-result-head{flex-direction:column}.hai-followup{grid-template-columns:1fr}}
 </style>
+<style>
+/* ABHIBIR_RANAI_VOICE_INPUT_V2 */
+.ranai-voice-wrap{display:flex;align-items:center;gap:8px;width:100%;}
+.ranai-voice-wrap>.ranai-input-target{flex:1;min-width:0;}
+.ranai-mic-btn{width:44px;height:44px;min-width:44px;border-radius:50%;border:1px solid #dbe3ee;background:#fff;color:#475569;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:.15s;}
+.ranai-mic-btn:hover{background:#eff6ff;color:#2563eb;border-color:#bfdbfe;transform:translateY(-1px);}
+.ranai-mic-btn.listening{background:#fee2e2;color:#dc2626;border-color:#fecaca;box-shadow:0 0 0 5px rgba(239,68,68,.12);}
+.ranai-mic-btn.unsupported{opacity:.55;cursor:not-allowed;}
+.ranai-mic-btn svg{width:19px;height:19px;pointer-events:none;}
+.ranai-mic-status{font-size:12px;color:#64748b;min-height:16px;margin-top:6px;}
+.ranai-mic-status.live{color:#dc2626;font-weight:600;}
+@media(max-width:640px){.ranai-mic-btn{width:42px;height:42px;min-width:42px;}}
+</style>
+<script>
+(function(){
+  /* ABHIBIR_RANAI_VOICE_INPUT_V2 */
+  var rec=null, listening=false, inputEl=null, mic=null, status=null, committed='';
+  function page(){return document.getElementById('page-ranai');}
+  function active(){var p=page();return p&&p.classList.contains('active');}
+  function findInput(){
+    var p=page(); if(!p) return null;
+    var all=Array.prototype.slice.call(p.querySelectorAll('textarea,input[type=text],input:not([type]),[contenteditable=true]'));
+    var good=all.filter(function(el){
+      var t=((el.id||'')+' '+(el.className||'')+' '+(el.getAttribute('placeholder')||'')+' '+(el.getAttribute('aria-label')||'')).toLowerCase();
+      return /ask|message|question|prompt|chat|ranai/.test(t);
+    });
+    return good[0]||all[all.length-1]||null;
+  }
+  function val(el){return el&&(el.isContentEditable?(el.textContent||''):(el.value||''));}
+  function put(el,v){
+    if(el.isContentEditable){el.textContent=v;el.dispatchEvent(new Event('input',{bubbles:true}));return;}
+    var proto=el instanceof HTMLTextAreaElement?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;
+    var d=Object.getOwnPropertyDescriptor(proto,'value');
+    if(d&&d.set)d.set.call(el,v);else el.value=v;
+    el.dispatchEvent(new Event('input',{bubbles:true}));
+    el.dispatchEvent(new Event('change',{bubbles:true}));
+  }
+  function msg(t,live){if(status){status.textContent=t||'';status.classList.toggle('live',!!live);}}
+  function stop(){listening=false;if(mic){mic.classList.remove('listening');mic.title='Speak your question';}if(rec){try{rec.stop();}catch(e){}}msg('',false);}
+  function start(){
+    inputEl=findInput(); if(!inputEl){msg('ranAI input not found.',false);return;}
+    if(!rec){msg('Speech-to-text is not supported in this browser.',false);return;}
+    committed=val(inputEl).trim();
+    try{rec.start();}catch(e){}
+  }
+  function initRec(){
+    var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+    if(!SR)return;
+    rec=new SR(); rec.continuous=true; rec.interimResults=true; rec.lang='en-IN';
+    rec.onstart=function(){listening=true;if(mic){mic.classList.add('listening');mic.title='Stop listening';}msg('Listening… speak now',true);};
+    rec.onresult=function(e){
+      var text='';
+      for(var i=e.resultIndex;i<e.results.length;i++)text+=e.results[i][0].transcript;
+      var next=(committed?committed+' ':'')+text.trim(); put(inputEl,next); if(inputEl.focus)inputEl.focus();
+      for(var j=e.resultIndex;j<e.results.length;j++)if(e.results[j].isFinal)committed=next;
+    };
+    rec.onerror=function(e){listening=false;if(mic)mic.classList.remove('listening');msg(e.error==='not-allowed'?'Microphone permission was denied.':'Microphone error: '+(e.error||'unknown'),false);};
+    rec.onend=function(){if(listening){try{rec.start();return;}catch(e){}} stop();};
+  }
+  function install(){
+    if(!active())return;
+    var input=findInput(); if(!input)return;
+    if(input.closest('.ranai-voice-wrap'))return;
+    var parent=input.parentElement; if(!parent)return;
+    var wrap=document.createElement('div'); wrap.className='ranai-voice-wrap';
+    input.classList.add('ranai-input-target'); parent.insertBefore(wrap,input); wrap.appendChild(input);
+    mic=document.createElement('button'); mic.type='button'; mic.className='ranai-mic-btn'; mic.title='Speak your question'; mic.setAttribute('aria-label','Speak your question');
+    mic.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="11" rx="3"></rect><path d="M5 10a7 7 0 0 0 14 0"></path><path d="M12 20v-4"></path><path d="M8 20h8"></path></svg>';
+    mic.onclick=function(){listening?stop():start();}; wrap.appendChild(mic);
+    status=document.createElement('div'); status.className='ranai-mic-status'; wrap.parentElement.appendChild(status);
+    if(!rec){mic.classList.add('unsupported');mic.title='Speech-to-text is not supported in this browser';}
+  }
+  document.addEventListener('DOMContentLoaded',function(){
+    initRec();
+    var n=0;
+    var timer=setInterval(function(){n++;install();if(n>120)clearInterval(timer);},500);
+    new MutationObserver(function(){install();}).observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['class']});
+  });
+})();
+</script>
 </head>
 <body>
 
