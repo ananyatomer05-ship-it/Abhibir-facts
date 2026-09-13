@@ -29,25 +29,21 @@ function sendJson(res, body, status = 200) {
 
 async function readResponse(response) {
   const raw = await response.text();
-  try {
-    return raw ? JSON.parse(raw) : {};
-  } catch {
-    return { raw };
-  }
+  try { return raw ? JSON.parse(raw) : {}; }
+  catch { return { raw }; }
 }
 
 async function handleGemini(body, apiKey) {
   const text = String(body.text || '').trim();
   const history = Array.isArray(body.history) ? body.history : [];
-
   if (!text) throw new Error('Gemini request is missing text.');
 
   const contents = [
     ...history
-      .filter((m) => m && m.role && m.text)
+      .filter((m) => m && m.role && (m.text || m.content))
       .map((m) => ({
         role: m.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: String(m.text) }],
+        parts: [{ text: String(m.text || m.content) }],
       })),
     { role: 'user', parts: [{ text }] },
   ];
@@ -63,10 +59,7 @@ async function handleGemini(body, apiKey) {
 
   const data = await readResponse(response);
   if (!response.ok) {
-    throw new Error(
-      data?.error?.message ||
-      `Gemini request failed (${response.status}). Check the GEMINI_API_KEY and model access in Vercel.`
-    );
+    throw new Error(data?.error?.message || `Gemini request failed (${response.status})`);
   }
 
   const output = data?.candidates?.[0]?.content?.parts
@@ -81,7 +74,6 @@ async function handleGemini(body, apiKey) {
         : 'Gemini returned no text response.'
     );
   }
-
   return output;
 }
 
@@ -107,7 +99,6 @@ async function handleOpenRouter(body, apiKey) {
   if (!response.ok) {
     throw new Error(data?.error?.message || `OpenRouter request failed (${response.status})`);
   }
-
   const output = data?.choices?.[0]?.message?.content || '';
   if (!output) throw new Error('OpenRouter returned no text response.');
   return output;
@@ -134,7 +125,6 @@ async function handleMistral(body, apiKey) {
   if (!response.ok) {
     throw new Error(data?.error?.message || `Mistral request failed (${response.status})`);
   }
-
   const output = data?.choices?.[0]?.message?.content || '';
   if (!output) throw new Error('Mistral returned no text response.');
   return output;
@@ -154,16 +144,13 @@ export default async function handler(req, res) {
   const task = String(body.task || '').toLowerCase();
   const config = PROVIDERS[provider];
 
-  if (!config) {
-    return sendJson(res, { error: `Unsupported provider: ${provider || '(missing)'}` }, 400);
-  }
+  if (!config) return sendJson(res, { error: `Unsupported provider: ${provider || '(missing)'}` }, 400);
 
   const allowedTasks = {
     gemini: ['chat'],
     openrouter: ['codewriter'],
     mistral: ['history'],
   };
-
   if (!allowedTasks[provider].includes(task)) {
     return sendJson(res, { error: `Unsupported task '${task}' for provider '${provider}'.` }, 400);
   }
@@ -179,6 +166,13 @@ export default async function handler(req, res) {
     else if (provider === 'openrouter') text = await handleOpenRouter(body, apiKey);
     else text = await handleMistral(body, apiKey);
 
+    // Compatibility fix for the current frontend:
+    // ranaiFetchLive() returns response.text as `data`, while ranaiSend()
+    // reads `data.text`. Returning an object for Gemini keeps both sides
+    // compatible and prevents blank response bubbles.
+    if (provider === 'gemini' && task === 'chat') {
+      return sendJson(res, { text: { text } });
+    }
     return sendJson(res, { text });
   } catch (error) {
     console.error(`ranAI ${provider}/${task} error:`, error);
