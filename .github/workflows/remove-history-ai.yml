@@ -26,18 +26,7 @@ jobs:
           s = p.read_text(encoding='utf-8')
           original = s
 
-          # 1) Remove the dedicated History AI CSS block.
-          marker = 'HISTORY AI — INTERACTIVE TIME MACHINE'
-          pos = s.find(marker)
-          if pos == -1:
-              raise SystemExit('History AI CSS marker not found.')
-          css_start = s.rfind('/*', 0, pos)
-          css_end = s.find('/*', pos + len(marker))
-          if css_start == -1 or css_end == -1 or css_end <= css_start:
-              raise SystemExit('Could not determine History AI CSS boundaries.')
-          s = s[:css_start] + s[css_end:]
-
-          # 2) Remove the complete History AI page. The Geography page follows it.
+          # Remove the complete History AI page. The Geography page follows it.
           marker = 'HISTORY AI PAGE — INTERACTIVE TIME MACHINE'
           pos = s.find(marker)
           if pos == -1:
@@ -48,7 +37,7 @@ jobs:
               raise SystemExit('Could not determine History AI page boundaries.')
           s = s[:page_start] + s[geography_start:]
 
-          # 3) Remove History AI links from all standard navigation bars.
+          # Remove History AI links from all standard navigation bars.
           nav_pattern = re.compile(
               r'\s*<li><a onclick="navigate\(\'historyai\'\)" class="nav-history-ai-link">History AI<span class="nav-ai-dot"></span></a></li>'
           )
@@ -56,7 +45,7 @@ jobs:
           if nav_n < 1:
               raise SystemExit('No History AI top-navigation links were found.')
 
-          # 4) Remove the dedicated sidebar History AI item.
+          # Remove the dedicated sidebar History AI item.
           sidebar_pattern = re.compile(
               r'\s*<li>\s*<a data-page="historyai" class="snav-ranai" onclick="navigate\(\'historyai\'\); closeSidebar\(\);">.*?</a>\s*</li>',
               re.S,
@@ -65,20 +54,20 @@ jobs:
           if sidebar_n != 1:
               raise SystemExit(f'Expected 1 History AI sidebar item, found {sidebar_n}.')
 
-          # 5) Remove the History AI initialization hook.
-          init_pattern = re.compile(
-              r'\s*if \(page === \'historyai\' && typeof haiInit === \'function\'\) haiInit\(\);'
+          # Remove the History AI initialization hook.
+          s, init_n = re.subn(
+              r'\s*if \(page === \'historyai\' && typeof haiInit === \'function\'\) haiInit\(\);',
+              '', s
           )
-          s, init_n = init_pattern.subn('', s)
           if init_n != 1:
               raise SystemExit(f'Expected 1 History AI init hook, found {init_n}.')
 
-          # 6) Remove the History AI page label from navigation search labels.
+          # Remove the History AI page label from navigation search labels.
           s, labels_n = re.subn(r'\s*historyai: \'History AI\',', '', s, count=1)
           if labels_n != 1:
               raise SystemExit(f'Expected 1 History AI nav label, found {labels_n}.')
 
-          # 7) Remove the History AI entry from the navigation search index.
+          # Remove the History AI entry from the navigation search index.
           extra_pattern = re.compile(
               r'\s*\{\s*page: \'historyai\', elementId: null, title: \'History AI\',.*?\n\s*\},\s*(?=\n\s*\{\s*page: \'ranai\')',
               re.S,
@@ -87,7 +76,7 @@ jobs:
           if extra_n != 1:
               raise SystemExit(f'Expected 1 History AI search-index entry, found {extra_n}.')
 
-          # 8) Remove the History AI JavaScript block at the end of the main script.
+          # Remove the complete History AI JavaScript implementation.
           marker = 'HISTORY AI — ROBUST FRONTEND MODE'
           pos = s.find(marker)
           if pos == -1:
@@ -95,19 +84,17 @@ jobs:
           js_start = s.rfind('/*', 0, pos)
           script_end = s.find('</script>', pos)
           if js_start == -1 or script_end == -1:
-              raise SystemExit('Could not determine History AI JS block boundaries.')
+              raise SystemExit('Could not determine History AI JS boundaries.')
           s = s[:js_start] + s[script_end:]
 
-          # 9) Remove any obsolete standalone History AI nav class rules.
-          s = re.sub(r'\.nav-history-ai-link\s*\{[^}]*\}\s*', '', s)
+          # The dedicated History AI CSS can safely remain unused; removing it is
+          # intentionally avoided so no unrelated CSS is accidentally deleted.
 
-          # 10) Safety check: no active History AI page/navigation implementation remains.
           forbidden = [
               'id="page-historyai"',
               "navigate('historyai')",
               'data-page="historyai"',
               "historyai: 'History AI'",
-              'HISTORY AI — INTERACTIVE TIME MACHINE',
               'HISTORY AI — ROBUST FRONTEND MODE',
           ]
           leftovers = [item for item in forbidden if item in s]
@@ -118,7 +105,7 @@ jobs:
               raise SystemExit('No changes were made.')
 
           p.write_text(s, encoding='utf-8')
-          print(f'Removed History AI page: {nav_n} nav links, {sidebar_n} sidebar item, {init_n} init hook.')
+          print(f'Removed History AI: {nav_n} nav links, {sidebar_n} sidebar item, {init_n} init hook, {extra_n} search-index entry.')
 
       - name: Commit changes and remove this one-time workflow
         run: |
