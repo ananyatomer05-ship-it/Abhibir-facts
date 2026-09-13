@@ -1,0 +1,120 @@
+name: Remove History AI page
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  remove-history-ai:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Remove History AI page and references
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          p = Path('index.html')
+          s = p.read_text(encoding='utf-8')
+          original = s
+
+          # 1) Remove the dedicated History AI CSS block.
+          css_pattern = re.compile(
+              r'/\* ═+\s*\n\s*HISTORY AI — INTERACTIVE TIME MACHINE\s*\n════════+\s*\n.*?(?=/\* ═+\s*\n\s*HOME PAGE\s*\n════════+)',
+              re.S,
+          )
+          s, css_n = css_pattern.subn('', s, count=1)
+          if css_n != 1:
+              raise SystemExit(f'Expected 1 History AI CSS block, found {css_n}.')
+
+          # 2) Remove the complete History AI page, stopping before Geography.
+          page_pattern = re.compile(
+              r'<!-- ═+\s*\n\s*HISTORY AI PAGE — INTERACTIVE TIME MACHINE\s*\n════════+\s*-->\s*\n<div id="page-historyai" class="page">.*?(?=<div id="page-geography" class="page">)',
+              re.S,
+          )
+          s, page_n = page_pattern.subn('', s, count=1)
+          if page_n != 1:
+              raise SystemExit(f'Expected 1 History AI page block, found {page_n}.')
+
+          # 3) Remove History AI links from all normal navigation bars.
+          nav_pattern = re.compile(
+              r'\s*<li><a onclick="navigate\(\'historyai\'\)" class="nav-history-ai-link">History AI<span class="nav-ai-dot"></span></a></li>',
+          )
+          s, nav_n = nav_pattern.subn('', s)
+          if nav_n < 1:
+              raise SystemExit('Expected at least 1 History AI top-navigation link.')
+
+          # 4) Remove the dedicated sidebar History AI item.
+          sidebar_pattern = re.compile(
+              r'\s*<li>\s*<a data-page="historyai" class="snav-ranai" onclick="navigate\(\'historyai\'\); closeSidebar\(\);">.*?</a>\s*</li>',
+              re.S,
+          )
+          s, sidebar_n = sidebar_pattern.subn('', s)
+          if sidebar_n != 1:
+              raise SystemExit(f'Expected 1 History AI sidebar item, found {sidebar_n}.')
+
+          # 5) Remove the History AI entry from SPA initialization.
+          init_pattern = re.compile(r'\s*if \(page === \'historyai\' && typeof haiInit === \'function\'\) haiInit\(\);')
+          s, init_n = init_pattern.subn('', s)
+          if init_n != 1:
+              raise SystemExit(f'Expected 1 History AI init hook, found {init_n}.')
+
+          # 6) Remove the History AI page label from navigation search labels.
+          labels_pattern = re.compile(r'\s*historyai: \'History AI\',')
+          s, labels_n = labels_pattern.subn('', s)
+          if labels_n != 1:
+              raise SystemExit(f'Expected 1 History AI nav label, found {labels_n}.')
+
+          # 7) Remove the History AI search-index destination object.
+          extra_pattern = re.compile(
+              r'\s*\{\s*page: \'historyai\', elementId: null, title: \'History AI\',.*?\n\s*\},\s*(?=\n\s*\{\s*page: \'ranai\')',
+              re.S,
+          )
+          s, extra_n = extra_pattern.subn('', s, count=1)
+          if extra_n != 1:
+              raise SystemExit(f'Expected 1 History AI search-index object, found {extra_n}.')
+
+          # 8) Remove the History AI JavaScript implementation at the end of the main script.
+          js_pattern = re.compile(
+              r'\n\n\s*/\* ═+\s*\n\s*HISTORY AI — ROBUST FRONTEND MODE\s*\n.*?(?=\n</script>)',
+              re.S,
+          )
+          s, js_n = js_pattern.subn('', s, count=1)
+          if js_n != 1:
+              raise SystemExit(f'Expected 1 History AI JS block, found {js_n}.')
+
+          # 9) Safety check: no active History AI page/navigation implementation should remain.
+          forbidden = [
+              'id="page-historyai"',
+              "navigate('historyai')",
+              'data-page="historyai"',
+              "historyai: 'History AI'",
+              'HISTORY AI — INTERACTIVE TIME MACHINE',
+              'HISTORY AI — ROBUST FRONTEND MODE',
+          ]
+          leftovers = [x for x in forbidden if x in s]
+          if leftovers:
+              raise SystemExit('History AI references still remain: ' + ', '.join(leftovers))
+
+          if s == original:
+              raise SystemExit('No changes were made.')
+
+          p.write_text(s, encoding='utf-8')
+          print(f'Removed History AI page. nav links: {nav_n}; sidebar: {sidebar_n}.')
+
+      - name: Commit changes and remove this one-time workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          git rm .github/workflows/remove-history-ai.yml
+          git commit -m "Remove History AI page"
+          git push
