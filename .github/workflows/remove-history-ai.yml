@@ -26,21 +26,15 @@ jobs:
           s = p.read_text(encoding='utf-8')
           original = s
 
-          # 1) Remove the dedicated History AI CSS block. Use marker positions
-          # instead of relying on the exact decorative Unicode divider length.
+          # 1) Remove the dedicated History AI CSS block.
           marker = 'HISTORY AI — INTERACTIVE TIME MACHINE'
           pos = s.find(marker)
           if pos == -1:
               raise SystemExit('History AI CSS marker not found.')
           css_start = s.rfind('/*', 0, pos)
-          if css_start == -1:
-              raise SystemExit('History AI CSS block start not found.')
-          home_pos = s.find('HOME PAGE', pos)
-          if home_pos == -1:
-              raise SystemExit('HOME PAGE CSS marker not found after History AI CSS.')
-          css_end = s.rfind('/*', pos, home_pos + 1)
-          if css_end <= css_start:
-              raise SystemExit('Could not determine History AI CSS block end.')
+          css_end = s.find('/*', pos + len(marker))
+          if css_start == -1 or css_end == -1 or css_end <= css_start:
+              raise SystemExit('Could not determine History AI CSS boundaries.')
           s = s[:css_start] + s[css_end:]
 
           # 2) Remove the complete History AI page. The Geography page follows it.
@@ -104,11 +98,10 @@ jobs:
               raise SystemExit('Could not determine History AI JS block boundaries.')
           s = s[:js_start] + s[script_end:]
 
-          # 9) Remove the obsolete History AI navigation CSS class if still unused.
-          s = re.sub(r'\.nav-history-ai-link\{[^}]*\}', '', s)
-          s = re.sub(r'\.nav-history-ai-link\s*\{[^}]*\}', '', s)
+          # 9) Remove any obsolete standalone History AI nav class rules.
+          s = re.sub(r'\.nav-history-ai-link\s*\{[^}]*\}\s*', '', s)
 
-          # 10) Safety check: no active page or navigation entry remains.
+          # 10) Safety check: no active History AI page/navigation implementation remains.
           forbidden = [
               'id="page-historyai"',
               "navigate('historyai')",
@@ -120,6 +113,9 @@ jobs:
           leftovers = [item for item in forbidden if item in s]
           if leftovers:
               raise SystemExit('History AI references still remain: ' + ', '.join(leftovers))
+
+          if s == original:
+              raise SystemExit('No changes were made.')
 
           p.write_text(s, encoding='utf-8')
           print(f'Removed History AI page: {nav_n} nav links, {sidebar_n} sidebar item, {init_n} init hook.')
